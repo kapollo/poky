@@ -1747,6 +1747,9 @@ class RunQueueExecute:
 
         self.stampcache = {}
 
+        self.stats = RunQueueStats(len(self.rqdata.runtaskentries))
+        self.sq_stats = RunQueueStats(len(self.rqdata.runq_setscene_tids))
+
         for mc in rq.worker:
             rq.worker[mc].pipe.setrunqueueexec(self)
         for mc in rq.fakeworker:
@@ -1801,8 +1804,9 @@ class RunQueueExecute:
     def finish(self):
         self.rq.state = runQueueCleanUp
 
-        if self.stats.active > 0:
-            bb.event.fire(runQueueExitWait(self.stats.active), self.cfgData)
+        active = self.stats.active + self.sq_stats.active
+        if active > 0:
+            bb.event.fire(runQueueExitWait(active), self.cfgData)
             self.rq.read_workers()
             return self.rq.active_fds()
 
@@ -1830,7 +1834,8 @@ class RunQueueExecute:
         return valid
 
     def can_start_task(self):
-        can_start = self.stats.active < self.number_tasks
+        active = self.stats.active + self.sq_stats.active
+        can_start = active < self.number_tasks
         return can_start
 
 class RunQueueExecuteDummy(RunQueueExecute):
@@ -1845,8 +1850,6 @@ class RunQueueExecuteDummy(RunQueueExecute):
 class RunQueueExecuteTasks(RunQueueExecute):
     def __init__(self, rq):
         RunQueueExecute.__init__(self, rq)
-
-        self.stats = RunQueueStats(len(self.rqdata.runtaskentries))
 
         self.stampcache = {}
 
@@ -2346,8 +2349,6 @@ class RunQueueExecuteScenequeue(RunQueueExecute):
             rq.state = runQueueRunInit
             return
 
-        self.stats = RunQueueStats(len(self.rqdata.runq_setscene_tids))
-
         self.sqdata = SQData()
         build_scenequeue_data(self.sqdata, self.rqdata, self.rq, self.cooker, self.stampcache, self)
 
@@ -2389,13 +2390,13 @@ class RunQueueExecuteScenequeue(RunQueueExecute):
                 self.rq.state = runQueueCleanUp
 
     def sq_task_complete(self, task):
-        self.stats.taskCompleted()
-        bb.event.fire(sceneQueueTaskCompleted(task, self.stats, self.rq), self.cfgData)
+        self.sq_stats.taskCompleted()
+        bb.event.fire(sceneQueueTaskCompleted(task, self.sq_stats, self.rq), self.cfgData)
         self.sq_task_completeoutright(task)
 
     def sq_task_fail(self, task, result):
-        self.stats.taskFailed()
-        bb.event.fire(sceneQueueTaskFailed(task, self.stats, result, self), self.cfgData)
+        self.sq_stats.taskFailed()
+        bb.event.fire(sceneQueueTaskFailed(task, self.sq_stats, result, self), self.cfgData)
         self.scenequeue_notcovered.add(task)
         self.scenequeue_updatecounters(task, True)
         self.sq_check_taskfail(task)
@@ -2403,8 +2404,8 @@ class RunQueueExecuteScenequeue(RunQueueExecute):
     def sq_task_failoutright(self, task):
         self.sq_running.add(task)
         self.sq_buildable.add(task)
-        self.stats.taskSkipped()
-        self.stats.taskCompleted()
+        self.sq_stats.taskSkipped()
+        self.sq_stats.taskCompleted()
         self.scenequeue_notcovered.add(task)
         self.scenequeue_updatecounters(task, True)
 
@@ -2412,8 +2413,8 @@ class RunQueueExecuteScenequeue(RunQueueExecute):
         self.sq_running.add(task)
         self.sq_buildable.add(task)
         self.sq_task_completeoutright(task)
-        self.stats.taskSkipped()
-        self.stats.taskCompleted()
+        self.sq_stats.taskSkipped()
+        self.sq_stats.taskCompleted()
 
     def sq_execute(self):
         """
@@ -2468,7 +2469,7 @@ class RunQueueExecuteScenequeue(RunQueueExecute):
                 self.sq_task_failoutright(task)
                 return True
 
-            startevent = sceneQueueTaskStarted(task, self.stats, self.rq)
+            startevent = sceneQueueTaskStarted(task, self.sq_stats, self.rq)
             bb.event.fire(startevent, self.cfgData)
 
             taskdepdata = self.sq_build_taskdepdata(task)
@@ -2489,11 +2490,11 @@ class RunQueueExecuteScenequeue(RunQueueExecute):
             self.build_stamps2.append(self.build_stamps[task])
             self.sq_running.add(task)
             self.sq_live.add(task)
-            self.stats.taskActive()
+            self.sq_stats.taskActive()
             if self.can_start_task():
                 return True
 
-        if self.stats.active > 0:
+        if self.sq_stats.active > 0:
             self.rq.read_workers()
             return self.rq.active_fds()
 
@@ -2510,7 +2511,7 @@ class RunQueueExecuteScenequeue(RunQueueExecute):
 
         self.rq.state = runQueueRunInit
 
-        completeevent = sceneQueueComplete(self.stats, self.rq)
+        completeevent = sceneQueueComplete(self.sq_stats, self.rq)
         bb.event.fire(completeevent, self.cfgData)
 
         return True
