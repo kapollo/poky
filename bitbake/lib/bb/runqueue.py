@@ -1992,7 +1992,7 @@ class RunQueueExecute:
             if self.can_start_task():
                 return True
 
-        if not self.sq_live:
+        if not self.sq_live and not self.sqdone:
             logger.debug(1, 'We could skip tasks %s', "\n".join(sorted(self.scenequeue_covered)))
 
             completeevent = sceneQueueComplete(self.sq_stats, self.rq)
@@ -2199,7 +2199,7 @@ class RunQueueExecute:
         for dep in self.sqdata.sq_deps[task]:
             if fail and task in self.sqdata.sq_harddeps and dep in self.sqdata.sq_harddeps[task]:
                 logger.debug(2, "%s was unavailable and is a hard dependency of %s so skipping" % (task, dep))
-                self.scenequeue_updatecounters(dep, fail)
+                self.sq_task_failoutright(dep)
                 continue
             if task not in self.sqdata.sq_revdeps2[dep]:
                 # May already have been removed by the fail case above
