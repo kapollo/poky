@@ -1680,49 +1680,29 @@ class RunQueue:
                 output = bb.siggen.compare_sigfiles(latestmatch, match, recursecb)
                 bb.plain("\nTask %s:%s couldn't be used from the cache because:\n  We need hash %s, closest matching task was %s\n  " % (pn, taskname, h, prevh) + '\n  '.join(output))
 
-def process_setscene_whitelist(rq, rqdata, stampcache, sched, rqex):
-    # Check tasks that are going to run against the whitelist
-    def check_norun_task(tid, showerror=False):
+    def check_setscenewhitelist(self, tid)
+        # Check task that is going to run against the whitelist
         (mc, fn, taskname, taskfn) = split_tid_mcfn(tid)
         # Ignore covered tasks
-        if tid in rqex.tasks_covered:
+        if tid in self.tasks_covered:
             return False
         # Ignore stamped tasks
-        if rq.check_stamp_task(tid, taskname, cache=stampcache):
+        if self.rq.check_stamp_task(tid, taskname, cache=self.stampcache):
             return False
         # Ignore noexec tasks
-        taskdep = rqdata.dataCaches[mc].task_deps[taskfn]
+        taskdep = self.rqdata.dataCaches[mc].task_deps[taskfn]
         if 'noexec' in taskdep and taskname in taskdep['noexec']:
             return False
 
-        pn = rqdata.dataCaches[mc].pkg_fn[taskfn]
-        if not check_setscene_enforce_whitelist(pn, taskname, rqdata.setscenewhitelist):
-            if showerror:
-                if tid in rqdata.runq_setscene_tids:
-                    logger.error('Task %s.%s attempted to execute unexpectedly and should have been setscened' % (pn, taskname))
-                else:
-                    logger.error('Task %s.%s attempted to execute unexpectedly' % (pn, taskname))
+        pn = self.rqdata.dataCaches[mc].pkg_fn[taskfn]
+        if not check_setscene_enforce_whitelist(pn, taskname, self.rqdata.setscenewhitelist):
+            if tid in self.rqdata.runq_setscene_tids:
+                msg = 'Task %s.%s attempted to execute unexpectedly and should have been setscened' % (pn, taskname)
+            else:
+                msg = 'Task %s.%s attempted to execute unexpectedly' % (pn, taskname)
+            logger.error(msg + '\nThis is usually due to missing setscene tasks. Those missing in this build were: %s' % str(self.scenequeue_notcovered))
             return True
         return False
-    # Look to see if any tasks that we think shouldn't run are going to
-    unexpected = False
-    for tid in rqdata.runtaskentries:
-        if check_norun_task(tid):
-            unexpected = True
-            break
-    if unexpected:
-        # Run through the tasks in the rough order they'd have executed and print errors
-        # (since the order can be useful - usually missing sstate for the last few tasks
-        # is the cause of the problem)
-        task = sched.next()
-        while task is not None:
-            check_norun_task(task, showerror=True)
-            rqex.task_skip(task, 'Setscene enforcement check')
-            task = sched.next()
-
-        rq.state = runQueueCleanUp
-        return True
-
 
 class RunQueueExecute:
 
@@ -1943,12 +1923,6 @@ class RunQueueExecute:
         Run the tasks in a queue prepared by rqdata.prepare()
         """
 
-        if self.rqdata.setscenewhitelist is not None and not self.rqdata.setscenewhitelist_checked:
-            self.rqdata.setscenewhitelist_checked = True
-
-            if process_setscenewhitelist(self.rq, self.rqdata, self.stampcache, self.sched, self):
-                return True
-
         if self.cooker.configuration.setsceneonly:
             return True
 
@@ -1961,6 +1935,11 @@ class RunQueueExecute:
         task = self.sched.next()
         if task is not None:
             (mc, fn, taskname, taskfn) = split_tid_mcfn(task)
+
+            if self.rqdata.setscenewhitelist is not None:
+                if check_setscenewhitelist(task, self.rq, self.rqdata, self.stampcache, self.sched, self):
+                    self.task_fail(task, "setscene whitelist")
+                    return True
 
             if task in self.tasks_covered:
                 logger.debug(2, "Setscene covered task %s", task)
