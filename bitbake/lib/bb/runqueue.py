@@ -1993,10 +1993,23 @@ class RunQueueExecute:
                 return True
 
         if not self.sq_live and not self.sqdone:
+            logger.info("Setscene tasks completed")
             logger.debug(1, 'We could skip tasks %s', "\n".join(sorted(self.scenequeue_covered)))
 
             completeevent = sceneQueueComplete(self.sq_stats, self.rq)
             bb.event.fire(completeevent, self.cfgData)
+
+            err = False
+            for x in self.rqdata.runtaskentries:
+                if x not in self.tasks_covered and x not in self.tasks_notcovered:
+                    logger.error("Task %s was never moved from the setscene queue" % x)
+                    err=True
+                if x not in self.tasks_scenequeue_done:
+                    logger.error("Task %s was never processed by the setscene code" % x)
+                    err=True
+            if err:
+                self.rq.state = runQueueFailed
+                return True
 
             if self.cooker.configuration.setsceneonly:
                 self.rq.state = runQueueComplete
@@ -2167,6 +2180,9 @@ class RunQueueExecute:
             (mc, fn, taskname, taskfn) = split_tid_mcfn(task)
             taskname = taskname + '_setscene'
             bb.build.del_stamp(taskname, self.rqdata.dataCaches[mc], taskfn)
+            if len(self.rqdata.runtaskentries[task].depends) == 0:
+                self.setbuildable(task)
+
             notcovered = set([task])
             while notcovered:
                 new = set()
@@ -2181,10 +2197,12 @@ class RunQueueExecute:
                             self.setbuildable(deptask)
                 notcovered = new
         elif task in self.scenequeue_covered:
+            logger.debug(1, 'Queued setscene task %s', task)
             self.coveredtopocess.add(task)
 
         for task in self.coveredtopocess.copy():
             if self.sqdata.sq_covered_tasks[task].issubset(self.tasks_scenequeue_done):
+                logger.debug(1, 'Processing setscene task %s', task)
                 covered = self.sqdata.sq_covered_tasks[task]
                 covered.add(task)
                 # Remove notcovered tasks
@@ -2386,6 +2404,11 @@ def build_scenequeue_data(sqdata, rqdata, rq, cooker, stampcache, sqrq):
             if tid in rqdata.runq_setscene_tids:
                 continue
             sqdata.unskippable.remove(tid)
+            if len(rqdata.runtaskentries[tid].depends) == 0:
+                # These are tasks which have no setscene tasks in their chain, need to mark as directly buildable
+                sqrq.tasks_notcovered.add(tid)
+                sqrq.tasks_scenequeue_done.add(tid)
+                sqrq.setbuildable(tid)
             sqdata.unskippable |= rqdata.runtaskentries[tid].depends
             new = True
 
