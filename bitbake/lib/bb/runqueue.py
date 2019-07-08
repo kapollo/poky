@@ -2117,6 +2117,45 @@ class RunQueueExecute:
         #bb.note("Task %s: " % task + str(taskdepdata).replace("], ", "],\n"))
         return taskdepdata
 
+    def scenequeue_process_notcovered(self, task):
+            logger.debug(1, 'Not skipping setscene task %s', task)
+            (mc, fn, taskname, taskfn) = split_tid_mcfn(task)
+            taskname = taskname + '_setscene'
+            bb.build.del_stamp(taskname, self.rqdata.dataCaches[mc], taskfn)
+            if len(self.rqdata.runtaskentries[task].depends) == 0:
+                self.setbuildable(task)
+            notcovered = set([task])
+            while notcovered:
+                new = set()
+                for t in notcovered:
+                    for deptask in self.rqdata.runtaskentries[t].depends:
+                        if deptask in notcovered or deptask in new or deptask in self.rqdata.runq_setscene_tids or deptask in self.tasks_notcovered:
+                            continue
+                        logger.debug(1, 'Task %s depends on non-setscene task %s so not skipping' % (t, deptask))
+                        new.add(deptask)
+                        self.tasks_notcovered.add(deptask)
+                        if len(self.rqdata.runtaskentries[deptask].depends) == 0:
+                            self.setbuildable(deptask)
+                notcovered = new
+
+    def scenequeue_process_unskippable(self, task):
+            # Look up the dependency chain for non-setscene things which depend on this task
+            # and mark as 'done'/notcovered
+            ready = set([task])
+            while ready:
+                new = set()
+                for t in ready:
+                    for deptask in self.rqdata.runtaskentries[t].revdeps:
+                        if deptask in ready or deptask in new or deptask in self.tasks_scenequeue_done or deptask in self.rqdata.runq_setscene_tids:
+                            continue
+                        if self.rqdata.runtaskentries[deptask].depends.issubset(self.tasks_scenequeue_done):
+                            new.add(deptask)
+                            self.tasks_scenequeue_done.add(deptask)
+                            self.tasks_notcovered.add(deptask)
+                            #logger.warning("Up: " + str(deptask))
+                ready = new
+
+
     def scenequeue_donetask(self, task):
 
         next = set([task])
@@ -2135,43 +2174,10 @@ class RunQueueExecute:
             next = new
 
         if task in self.sqdata.unskippable:
-            # Look up the dependency chain for non-setscene things which depend on this task
-            # and mark as 'done'/notcovered
-            ready = set([task])
-            while ready:
-                new = set()
-                for t in ready:
-                    for deptask in self.rqdata.runtaskentries[t].revdeps:
-                        if deptask in ready or deptask in new or deptask in self.tasks_scenequeue_done:
-                            continue
-                        if self.rqdata.runtaskentries[deptask].depends.issubset(self.tasks_scenequeue_done):
-                            new.add(deptask)
-                            self.tasks_scenequeue_done.add(deptask)
-                            self.tasks_notcovered.add(deptask)
-                            #logger.warning("Up: " + str(deptask))
-                ready = new
+            self.scenequeue_process_unskippable(task)
 
         if task in self.scenequeue_notcovered:
-            logger.debug(1, 'Not skipping setscene task %s', task)
-            (mc, fn, taskname, taskfn) = split_tid_mcfn(task)
-            taskname = taskname + '_setscene'
-            bb.build.del_stamp(taskname, self.rqdata.dataCaches[mc], taskfn)
-            if len(self.rqdata.runtaskentries[task].depends) == 0:
-                self.setbuildable(task)
-
-            notcovered = set([task])
-            while notcovered:
-                new = set()
-                for t in notcovered:
-                    for deptask in self.rqdata.runtaskentries[t].depends:
-                        if deptask in notcovered or deptask in new or deptask in self.rqdata.runq_setscene_tids or deptask in self.tasks_notcovered:
-                            continue
-                        logger.debug(1, 'Task %s depends on non-setscene task %s so not skipping' % (t, deptask))
-                        new.add(deptask)
-                        self.tasks_notcovered.add(deptask)
-                        if len(self.rqdata.runtaskentries[deptask].depends) == 0:
-                            self.setbuildable(deptask)
-                notcovered = new
+            self.scenequeue_process_notcovered(task)
         elif task in self.scenequeue_covered:
             logger.debug(1, 'Queued setscene task %s', task)
             self.coveredtopocess.add(task)
@@ -2409,6 +2415,7 @@ def build_scenequeue_data(sqdata, rqdata, rq, cooker, stampcache, sqrq):
                 sqrq.tasks_notcovered.add(tid)
                 sqrq.tasks_scenequeue_done.add(tid)
                 sqrq.setbuildable(tid)
+                sqrq.scenequeue_process_unskippable(tid)
             sqdata.unskippable |= rqdata.runtaskentries[tid].depends
             new = True
 
