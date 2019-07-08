@@ -1447,16 +1447,15 @@ class RunQueue:
             self.rqdata.init_progress_reporter.next_stage()
             self.start_worker()
             self.rqdata.init_progress_reporter.next_stage()
-            if not self.rqexe:
-                self.rqexe = RunQueueExecute(self)
+            self.rqexe = RunQueueExecute(self)
 
             # If we don't have any setscene functions, skip execution
             if len(self.rqdata.runq_setscene_tids) == 0:
-                self.rqdata.init_progress_reporter.finish()
                 for tid in self.rqdata.runtaskentries:
                     if len(self.rqdata.runtaskentries[tid].depends) == 0:
                         self.rqexe.setbuildable(tid)
                     self.rqexe.tasks_notcovered.add(tid)
+                self.rqexe.sqdone = True
             logger.info('Executing Tasks')
             self.state = runQueueRunning
 
