@@ -1675,29 +1675,6 @@ class RunQueue:
                 output = bb.siggen.compare_sigfiles(latestmatch, match, recursecb)
                 bb.plain("\nTask %s:%s couldn't be used from the cache because:\n  We need hash %s, closest matching task was %s\n  " % (pn, taskname, h, prevh) + '\n  '.join(output))
 
-    def check_setscenewhitelist(self, tid):
-        # Check task that is going to run against the whitelist
-        (mc, fn, taskname, taskfn) = split_tid_mcfn(tid)
-        # Ignore covered tasks
-        if tid in self.tasks_covered:
-            return False
-        # Ignore stamped tasks
-        if self.rq.check_stamp_task(tid, taskname, cache=self.stampcache):
-            return False
-        # Ignore noexec tasks
-        taskdep = self.rqdata.dataCaches[mc].task_deps[taskfn]
-        if 'noexec' in taskdep and taskname in taskdep['noexec']:
-            return False
-
-        pn = self.rqdata.dataCaches[mc].pkg_fn[taskfn]
-        if not check_setscene_enforce_whitelist(pn, taskname, self.rqdata.setscenewhitelist):
-            if tid in self.rqdata.runq_setscene_tids:
-                msg = 'Task %s.%s attempted to execute unexpectedly and should have been setscened' % (pn, taskname)
-            else:
-                msg = 'Task %s.%s attempted to execute unexpectedly' % (pn, taskname)
-            logger.error(msg + '\nThis is usually due to missing setscene tasks. Those missing in this build were: %s' % str(self.scenequeue_notcovered))
-            return True
-        return False
 
 class RunQueueExecute:
 
@@ -2027,7 +2004,7 @@ class RunQueueExecute:
             (mc, fn, taskname, taskfn) = split_tid_mcfn(task)
 
             if self.rqdata.setscenewhitelist is not None:
-                if check_setscenewhitelist(task, self.rq, self.rqdata, self.stampcache, self.sched, self):
+                if self.check_setscenewhitelist(task):
                     self.task_fail(task, "setscene whitelist")
                     return True
 
@@ -2315,6 +2292,30 @@ class RunQueueExecute:
 
         #bb.note("Task %s: " % task + str(taskdepdata).replace("], ", "],\n"))
         return taskdepdata
+
+    def check_setscenewhitelist(self, tid):
+        # Check task that is going to run against the whitelist
+        (mc, fn, taskname, taskfn) = split_tid_mcfn(tid)
+        # Ignore covered tasks
+        if tid in self.tasks_covered:
+            return False
+        # Ignore stamped tasks
+        if self.rq.check_stamp_task(tid, taskname, cache=self.stampcache):
+            return False
+        # Ignore noexec tasks
+        taskdep = self.rqdata.dataCaches[mc].task_deps[taskfn]
+        if 'noexec' in taskdep and taskname in taskdep['noexec']:
+            return False
+
+        pn = self.rqdata.dataCaches[mc].pkg_fn[taskfn]
+        if not check_setscene_enforce_whitelist(pn, taskname, self.rqdata.setscenewhitelist):
+            if tid in self.rqdata.runq_setscene_tids:
+                msg = 'Task %s.%s attempted to execute unexpectedly and should have been setscened' % (pn, taskname)
+            else:
+                msg = 'Task %s.%s attempted to execute unexpectedly' % (pn, taskname)
+            logger.error(msg + '\nThis is usually due to missing setscene tasks. Those missing in this build were: %s' % pprint.pformat(self.scenequeue_notcovered))
+            return True
+        return False
 
 class SQData(object):
     def __init__(self):
