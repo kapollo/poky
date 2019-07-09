@@ -1451,6 +1451,7 @@ class RunQueue:
 
             # If we don't have any setscene functions, skip execution
             if len(self.rqdata.runq_setscene_tids) == 0:
+                logger.info('No setscene tasks')
                 for tid in self.rqdata.runtaskentries:
                     if len(self.rqdata.runtaskentries[tid].depends) == 0:
                         self.rqexe.setbuildable(tid)
@@ -1989,6 +1990,7 @@ class RunQueueExecute:
 
             if self.cooker.configuration.setsceneonly:
                 self.rq.state = runQueueComplete
+                return True
             self.sqdone = True
 
             if self.stats.total == 0:
